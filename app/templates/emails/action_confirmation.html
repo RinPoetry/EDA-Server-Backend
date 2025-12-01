@@ -1,0 +1,24 @@
+{% extends 'emails/base_email.html' %}
+
+{% block body %}
+    <h2>{{ title }}</h2>
+    <p>您好 {{ name }},</p>
+    <p>{{ intro_text }}</p>
+
+    <h3>操作详情</h3>
+    <ul>
+        <li><strong>操作类型:</strong> {{ action_name }}</li>
+        <li><strong>操作时间:</strong> {{ timestamp }}</li>
+        <li><strong>IP 地址:</strong> {{ ip_address }}</li>
+    </ul>
+
+    <p>如果您确认这是您本人的操作，请点击下方的按钮以完成验证：</p>
+    <a href="{{ confirm_url }}" class="button">{{ button_text }}</a>
+
+    <p style="font-size: 12px; color: #888; margin-top: 20px;">
+        如果按钮无法点击，请复制并打开以下链接：<br>{{ confirm_url }}
+    </p>
+
+    <p>{{ warning_text }}</p>
+    <p><strong>此链接将在 {{ expire_minutes }} 分钟后失效。</strong></p>
+{% endblock %}

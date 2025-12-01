@@ -1,0 +1,45 @@
+{% extends 'emails/base_email.html' %}
+
+{% block body %}
+    <h2>{{ title }}</h2>
+    <p>您好 {{ name }},</p>
+    <p><strong>{{ inviter_name }}</strong> 邀请您加入 {{ server_name }}！</p>
+
+    {% if is_new_user %}
+        <p>您的账户已创建成功。请妥善保管以下账户信息，不同服务的密码是独立的。我们强烈建议您首次登录后立即修改所有初始密码。</p>
+        <h3>重要地址</h3>
+        <ul>
+            <li>服务器地址 (SSH): <strong>{{ server_address }}</strong></li>
+            <li>Web 管理面板: <a href="{{ panel_url }}">{{ panel_url }}</a></li>
+            <li>VNC 远程桌面: <strong>{{ vnc_address }}</strong></li>
+        </ul>
+    {% else %}
+        <p>您的 Linux 系统账户 <strong>({{ linux_username }})</strong> 已被关联到面板。</p>
+        <p>请使用以下凭据登录管理面板：</p>
+    {% endif %}
+
+    <h3>您的账户信息</h3>
+    <div class="credentials">
+        <pre><strong>Web 管理面板</strong>
+  - 登录邮箱: {{ email }}
+  - 初始密码: {{ panel_password }}</pre>
+
+        {% if is_new_user %}
+        <hr>
+        <pre><strong>Linux / SSH</strong>
+  - 用户名: {{ linux_username }}
+  - 初始密码: {{ linux_password }}</pre>
+        <hr>
+        <pre><strong>VNC 远程桌面</strong>
+  - 初始密码: {{ vnc_password }}</pre>
+        {% endif %}
+    </div>
+
+    {% if not is_new_user %}
+        <p><em>注意：您的 Linux 系统密码和 VNC 密码保持不变。</em></p>
+        <a href="{{ panel_url }}" class="button">点击登录面板</a>
+    {% endif %}
+
+    <p>如果您在登录或使用过程中遇到任何问题，请随时联系管理员。</p>
+    <p>祝您使用愉快！</p>
+{% endblock %}

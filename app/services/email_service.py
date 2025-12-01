@@ -1,4 +1,4 @@
-# app/services/email_service.py (修改后)
+# app/services/email_service.py
 
 import smtplib
 import os
@@ -6,25 +6,21 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from flask import current_app
-# 【新增】导入 formataddr 用于正确格式化带中文的发件人，以及 Header 用于主题
 from email.utils import formataddr
 from email.header import Header
+from flask import current_app
 
 
 class EmailService:
     """
     封装邮件发送服务的类。
     支持发送纯文本邮件、HTML邮件以及带附件的邮件。
+    已修复中文发件人名称和主题的乱码问题。
     """
 
     def send_email(self, to, subject, body, attachments=None, is_html=False):
         """
         发送邮件的核心方法。
-        【修改】
-        - 使用 formataddr 规范化 From 头部，解决中文名编码问题。
-        - 使用 Header 规范化 Subject 头部，解决中文主题编码问题。
-        - 增加配置完整性检查。
         """
         config = current_app.config
         sender_name, sender_email = config['MAIL_DEFAULT_SENDER']
@@ -34,33 +30,32 @@ class EmailService:
         server_port = config['MAIL_PORT']
         use_ssl = config['MAIL_USE_SSL']
 
-        # 【新增】健壮性检查：在尝试发送前，确保关键配置已设置
+        # 健壮性检查
         if not all([username, password, server_host]):
-            error_msg = "邮件服务配置不完整 (MAIL_USERNAME, MAIL_PASSWORD, MAIL_SERVER 必须在环境变量中设置)。"
+            error_msg = "邮件服务配置不完整 (MAIL_USERNAME, MAIL_PASSWORD, MAIL_SERVER 必须设置)。"
             current_app.logger.error(error_msg)
             return False, error_msg
 
         # 构造邮件对象
         msg = MIMEMultipart()
 
-        # 【核心修复】使用 formataddr 格式化 From 头部
-        # 这会自动处理 sender_name 中的中文字符编码，使其符合 RFC 标准
+        # 【关键修复】使用 formataddr 处理带中文的发件人格式: "姓名 <email>"
+        # formataddr 第一个参数是 (显示名称, 邮箱地址)，它会自动进行 RFC2047 编码
         msg['From'] = formataddr((sender_name, sender_email))
 
-        # 处理多个收件人
         if isinstance(to, list):
             msg['To'] = ", ".join(to)
         else:
             msg['To'] = to
 
-        # 【核心修复】确保邮件主题中的非ASCII字符也被正确编码
+        # 【关键修复】使用 Header 处理带中文的主题
         msg['Subject'] = Header(subject, 'utf-8')
 
         # 邮件正文
         body_type = 'html' if is_html else 'plain'
         msg.attach(MIMEText(body, body_type, 'utf-8'))
 
-        # 处理附件 (逻辑保持不变)
+        # 处理附件
         if attachments:
             for file_path in attachments:
                 if not os.path.exists(file_path):
@@ -71,13 +66,15 @@ class EmailService:
                     part.set_payload(attachment.read())
                 encoders.encode_base64(part)
                 filename = os.path.basename(file_path)
+                # 处理附件名中文编码
                 part.add_header(
                     'Content-Disposition',
-                    f'attachment; filename="{filename}"'
+                    'attachment',
+                    filename=filename  # 现代客户端通常能处理UTF-8，若兼容性要求高需额外处理
                 )
                 msg.attach(part)
 
-        # 发送邮件 (逻辑保持不变)
+        # 发送邮件
         try:
             if use_ssl:
                 with smtplib.SMTP_SSL(server_host, server_port) as server:
@@ -96,5 +93,4 @@ class EmailService:
             return False, f"发送邮件时发生错误: {e}"
 
 
-# 创建一个邮件服务的单例
 email_service = EmailService()

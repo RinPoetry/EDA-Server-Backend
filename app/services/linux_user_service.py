@@ -102,11 +102,141 @@ class LinuxUserService:
         """
         return self._run_command(['chpasswd'], input_data=f"{username}:{new_password}")
 
+    # =========================================================================
+    # SSH 密钥列表管理 (新增/修改)
+    # =========================================================================
+
+    def list_ssh_keys(self, username: str):
+        """
+        [新增] 解析用户的 authorized_keys 文件，返回结构化列表。
+        支持识别 [options] key-type base64-encoded-key [comment] 格式。
+        """
+        try:
+            user_info = pwd.getpwnam(username)
+            ssh_dir = Path(user_info.pw_dir) / ".ssh"
+            authorized_keys_file = ssh_dir / "authorized_keys"
+
+            if not authorized_keys_file.exists():
+                return True, []
+
+            keys_list = []
+            # 常见的SSH密钥类型正则
+            key_type_pattern = r'(ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp\d+|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)'
+
+            with open(authorized_keys_file, 'r', encoding='utf-8') as f:
+                for idx, line in enumerate(f):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # 1. 检查是否被注释
+                    is_commented = line.startswith('#')
+                    content = line.lstrip('#').strip()
+
+                    # 2. 尝试解析
+                    # 逻辑：查找第一个出现的 key_type，它之前的是 options，它之后的是 key body 和 comment
+                    match = re.search(
+                        fr'(^|\s)(?P<type>{key_type_pattern})\s+(?P<key>[A-Za-z0-9+/=]+)(?:\s+(?P<comment>.*))?$',
+                        content)
+
+                    key_data = {
+                        "id": idx,  # 临时ID，用于前端列表key
+                        "is_commented": is_commented,
+                        "options": "",
+                        "key_type": "unknown",
+                        "key_body": "",
+                        "comment": "",
+                        "original_line": line
+                    }
+
+                    if match:
+                        key_data["key_type"] = match.group('type')
+                        key_data["key_body"] = match.group('key')
+                        key_data["comment"] = match.group('comment') or ""
+
+                        # 提取 options (匹配开始位置之前的所有内容)
+                        start_index = match.start()
+                        if start_index > 0:
+                            key_data["options"] = content[:start_index].strip()
+                    else:
+                        # 无法解析的行（可能是纯注释或其他格式），保留在 comment 或 original_line 中
+                        # 为了不丢失数据，我们把整行作为 comment 显示，类型标记为 invalid
+                        key_data["key_type"] = "raw_text"
+                        key_data["comment"] = content
+
+                    keys_list.append(key_data)
+
+            return True, keys_list
+
+        except KeyError:
+            return False, f"用户 '{username}' 不存在。"
+        except Exception as e:
+            return False, f"读取 SSH 密钥失败: {e}"
+
+    def update_authorized_keys(self, username: str, keys_data: list):
+        """
+        [新增] 接收结构化的密钥列表，全量重写 authorized_keys 文件。
+        这是原子操作的安全替代方案，防止命令注入。
+        """
+        try:
+            user_info = pwd.getpwnam(username)
+            home_dir = Path(user_info.pw_dir)
+            uid, gid = user_info.pw_uid, user_info.pw_gid
+
+            ssh_dir = home_dir / ".ssh"
+            authorized_keys_file = ssh_dir / "authorized_keys"
+
+            # 确保目录存在
+            os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
+            shutil.chown(ssh_dir, user=uid, group=gid)
+
+            # 构建新文件内容
+            new_lines = []
+            for item in keys_data:
+                # 简单防注入：只允许特定字符进入关键字段，或者直接通过拼接防止 shell 解析
+                # 这里我们直接拼接字符串写入文件，不经过 shell 执行，所以是安全的。
+
+                # 如果是无法解析的原始文本，直接写回（带注释状态）
+                if item.get("key_type") == "raw_text":
+                    line = item.get("original_line", "").lstrip('#').strip()
+                else:
+                    parts = []
+                    if item.get("options"):
+                        parts.append(item["options"].strip())
+                    parts.append(item["key_type"].strip())
+                    parts.append(item["key_body"].strip())
+                    if item.get("comment"):
+                        parts.append(item["comment"].strip())
+                    line = " ".join(parts)
+
+                if item.get("is_commented"):
+                    line = f"# {line}"
+
+                new_lines.append(line)
+
+            # 写入临时文件然后移动（模拟原子写）
+            with tempfile.NamedTemporaryFile('w', delete=False, dir=ssh_dir, encoding='utf-8') as tf:
+                tf.write("\n".join(new_lines) + "\n")
+                temp_path = tf.name
+
+            # 设置权限
+            os.chmod(temp_path, 0o600)
+            shutil.chown(temp_path, user=uid, group=gid)
+
+            # 覆盖原文件
+            shutil.move(temp_path, authorized_keys_file)
+
+            return True, "SSH 密钥列表已更新。"
+
+        except Exception as e:
+            return False, f"更新 authorized_keys 失败: {e}"
+
     def change_ssh_key(self, username: str, public_key: str):
         """
         修改或添加用户的 SSH 公钥。
-        会覆盖现有的 authorized_keys 文件。
+        [注意] 此方法目前是单条覆盖逻辑，若使用新的 update_authorized_keys 则此方法可逐渐废弃。
         """
+        # 兼容旧接口
         public_key = public_key.strip()
         if not re.match(r'^(ssh-rsa|ecdsa-sha2-nistp\d+|ssh-ed25519) AAAA[0-9A-Za-z+/]+[=]{0,3}(\s+.+)?$', public_key):
             return False, "无效的 SSH public key 格式。"
@@ -132,16 +262,10 @@ class LinuxUserService:
         except Exception as e:
             return False, f"更新 SSH 公key时出错: {e}"
 
-    # 【核心修改】新增在服务器端为用户生成密钥对的方法
     def generate_ssh_key_pair(self, username: str):
         """
         在服务器上为用户生成一个新的 SSH 密钥对 (ed25519)。
-        - 在临时目录中创建密钥对。
-        - 将公钥附加到用户的 authorized_keys 文件中。
-        - 返回私钥内容供邮件发送。
-        - 安全地清理临时文件。
-        :param username: 用户名。
-        :return: (bool, str, str or None) -> (是否成功, 消息, 私钥内容)。
+        [注意] 此方法通过 append ('a') 模式写入，与新的列表管理方式兼容。
         """
         try:
             user_info = pwd.getpwnam(username)

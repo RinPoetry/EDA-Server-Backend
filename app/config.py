@@ -1,4 +1,4 @@
-# app/config.py (修改后)
+# app/config.py
 
 import os
 from dotenv import load_dotenv
@@ -24,7 +24,7 @@ class Config:
     # ==========================================================
     # ===== 服务器面板配置 (Server Panel Config) =====
     # ==========================================================
-    # 【修改】服务器名称和地址，均可通过环境变量配置
+    # 服务器名称和地址，均可通过环境变量配置
     SERVER_NAME = os.environ.get('SERVER_NAME', 'EDA组服务器')
     SERVER_ADDRESS = os.environ.get('SERVER_ADDRESS', '10.161.90.114')
     # 信息更新时间间隔 (秒)
@@ -40,6 +40,10 @@ class Config:
     # JWT 配置
     JWT_ALGORITHM = 'HS256'
     JWT_EXPIRATION_DELTA = timedelta(days=int(os.environ.get('JWT_EXPIRATION_DAYS', 7)))
+
+    # 是否开启登录2FA验证 (默认关闭)
+    # 如果设置为 False，新设备登录时将自动通过并记录指纹，不再发送验证邮件
+    ENABLE_LOGIN_2FA = os.environ.get('ENABLE_LOGIN_2FA', 'False').lower() in ['true', '1', 't']
 
     # 2FA (双因素认证) 待办操作Token的有效时间
     PENDING_ACTION_TOKEN_EXPIRES_IN = timedelta(minutes=int(os.environ.get('PENDING_ACTION_TOKEN_MINUTES', 30)))
@@ -68,7 +72,7 @@ class Config:
     # ==========================================================
     # ===== 初始管理员账户 (Initial Admin User) =====
     # ==========================================================
-    # 首次运行时，通过 `flask init-admin` 命令创建
+    # 首次运行时，通过自动化逻辑创建
     INIT_ADMIN_EMAIL = os.environ.get('INIT_ADMIN_EMAIL')
     INIT_ADMIN_PASSWORD = os.environ.get('INIT_ADMIN_PASSWORD')
     INIT_ADMIN_NAME = os.environ.get('INIT_ADMIN_NAME', '管理员')
@@ -77,7 +81,7 @@ class Config:
     # ==========================================================
     # ===== Linux 用户服务配置 =====
     # ==========================================================
-    # 【修改】新用户家目录卷列表，可通过环境变量以逗号分隔的字符串形式提供
+    # 新用户家目录卷列表，可通过环境变量以逗号分隔的字符串形式提供
     USER_HOME_VOLUMES_STR = os.environ.get('USER_HOME_VOLUMES', '/volumes/home,/mnt/home')
     USER_HOME_VOLUMES = [path.strip() for path in USER_HOME_VOLUMES_STR.split(',')]
     # VNC 用户和端口的配置文件路径
@@ -86,7 +90,7 @@ class Config:
     # ==========================================================
     # ===== 系统信息服务配置 =====
     # ==========================================================
-    # 【修改】需要每日统计磁盘空间占用的路径列表，可通过环境变量以逗号分隔的字符串形式提供
+    # 需要每日统计磁盘空间占用的路径列表，可通过环境变量以逗号分隔的字符串形式提供
     DISK_USAGE_PATHS_STR = os.environ.get('DISK_USAGE_PATHS', '/home,/mnt/home,/volumes/home')
     DISK_USAGE_PATHS = [path.strip() for path in DISK_USAGE_PATHS_STR.split(',')]
     # 实时信息收集的时间间隔（秒）

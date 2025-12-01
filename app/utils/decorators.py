@@ -1,11 +1,37 @@
 # app/utils/decorators.py
 
 from functools import wraps
-from flask import request, g
+from flask import request, g, current_app
 from .response_utils import error, RetCode
 from .token_utils import decode_jwt
 from app.services.sqlite_database_service import db_service
 import json
+
+# 定义敏感字段集合，便于统一管理，防止隐私泄露，后续记得检查字段
+SENSITIVE_KEYS = {
+    'password', 'new_password', 'old_password',
+    'token', 'fingerprint', 'private_key', 'public_key',
+    'secret', 'access_token', 'keys'
+}
+
+
+def _filter_sensitive_data(data):
+    """
+    【新增】递归过滤敏感数据的辅助函数。
+    可以处理嵌套的字典或列表，将敏感字段的值替换为 '******'。
+    """
+    if isinstance(data, dict):
+        data_copy = data.copy()  # 创建副本，以免修改原始数据
+        for key, value in data_copy.items():
+            if key in SENSITIVE_KEYS:
+                data_copy[key] = '******'
+            else:
+                data_copy[key] = _filter_sensitive_data(value)
+        return data_copy
+    elif isinstance(data, list):
+        return [_filter_sensitive_data(item) for item in data]
+    else:
+        return data
 
 
 def token_required(f):
@@ -75,25 +101,23 @@ def log_api_call(f):
         # 执行视图函数
         response = f(*args, **kwargs)
 
-        # 确保 g.current_user 存在
+        # 确保 g.current_user 存在，如果未登录（如login接口）则无法记录user_id，这里选择跳过
         if not hasattr(g, 'current_user'):
             return response
 
         try:
             # --- 修改开始 ---
-            # 直接从 Response 对象中获取状态码和数据
-            # Flask 会确保视图函数的返回值最终被包装成一个 Response 对象
+            # 1. 安全地获取响应数据，防止 response.get_json() 返回 None 导致 AttributeError
             status_code = response.status_code
-            response_data = response.get_json()  # 使用 get_json() 更安全，如果响应不是JSON，会返回None
+            response_data = response.get_json()
 
-            # 如果响应不是JSON格式，response.get_json() 会返回 None，需要处理这种情况
-            if response_data is None:
-                # 记录一个默认值或尝试从原始数据解析
-                result_code = None
-                result_message = 'Response is not in JSON format'
-            else:
+            if response_data and isinstance(response_data, dict):
                 result_code = response_data.get('code')
                 result_message = response_data.get('msg')
+            else:
+                # 处理非 JSON 响应或 get_json 失败的情况
+                result_code = status_code
+                result_message = "Non-JSON response or empty body"
             # --- 修改结束 ---
 
             # 准备日志参数
@@ -101,10 +125,11 @@ def log_api_call(f):
             if request.method == 'GET':
                 params = request.args.to_dict()
             elif request.is_json:
-                # 过滤掉敏感信息
-                params = request.get_json()
-                if 'password' in params: params['password'] = '******'
-                if 'new_password' in params: params['new_password'] = '******'
+                # --- 修改开始 ---
+                # 2. 使用新的通用过滤函数处理参数，彻底防止隐私泄露
+                raw_params = request.get_json()
+                params = _filter_sensitive_data(raw_params)
+                # --- 修改结束 ---
 
             # 写入日志
             db_service.log_operation(
@@ -118,9 +143,12 @@ def log_api_call(f):
                 ip_address=request.remote_addr
             )
         except Exception as e:
-            # 日志记录失败不应影响主流程
-            print(f"Log记录失败: {e}")  # 打印更详细的错误信息
-            pass
+            # --- 修改开始 ---
+            # 3. 使用 logger 记录错误而不是 print，防止静默失败难以排查
+            # exc_info=True 会打印完整的堆栈信息
+            current_app.logger.error(f"API Log Recording Failed: {str(e)}", exc_info=True)
+            # --- 修改结束 ---
+            # 日志记录失败不应影响主流程，依然返回原 response
 
         return response
 

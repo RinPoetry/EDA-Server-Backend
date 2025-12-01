@@ -1,0 +1,16 @@
+{% extends 'emails/base_email.html' %}
+
+{% block body %}
+    <h2>您的新 SSH 私钥</h2>
+    <p>您好 {{ name }},</p>
+    <p>您请求的新 SSH 密钥对已成功生成。</p>
+    <p>以下是您的 <strong>私钥</strong>，请立即将其保存到您本地电脑的 <code>~/.ssh/</code> 目录下（例如命名为 <code>id_ed25519_server</code>），并设置文件权限为 600。</p>
+
+    <div class="credentials">
+        <pre>{{ private_key }}</pre>
+    </div>
+
+    <p style="color: red; margin-top: 20px;">
+        <strong>【安全警告】</strong>: 这是唯一一次显示您的私钥。请妥善保管，切勿泄露给任何人。建议您在保存后立即从邮件中删除此内容。
+    </p>
+{% endblock %}
